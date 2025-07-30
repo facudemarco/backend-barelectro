@@ -17,15 +17,19 @@ class FormData(BaseModel):
     message: str
 
 def sendEmail(form_data: FormData):
-    sender_email = "SENDER"
+    sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASSWORD")
+    receiver_email = os.environ.get("RECEIVER_EMAIL")
     
+    if not sender_email:
+        raise HTTPException(status_code=500, detail="El email del remitente no está configurado")
     if not sender_password:
         raise HTTPException(status_code=500, detail="La contraseña del remitente no está configurada")
+    if not receiver_email:
+        raise HTTPException(status_code=500, detail="El email del receptor no está configurado")
         
-    receiver_email = "RECEIVER"
     subject = f"{form_data.full_name} - Contacto"
-    body = f"Nombre completo: {form_data.full_name}\nTeléfono: {form_data.phone}\nEmail: {form_data.email}\nMensaje: {form_data.message}\nZona: {form_data.zone}\nFecha de inicio: {form_data.startDate}\nComentarios: {form_data.comments}"
+    body = f"Nombre completo: {form_data.full_name}\nTeléfono: {form_data.phone}\nEmail: {form_data.email}\nMensaje: {form_data.message}"
 
     msg = MIMEMultipart()
     msg['From'] = sender_email
