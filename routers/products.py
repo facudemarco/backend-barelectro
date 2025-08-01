@@ -1,4 +1,5 @@
 from typing import Optional, List
+from unicodedata import category
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from sqlalchemy import text
 from Database.dbGetConnection import engine
@@ -68,7 +69,9 @@ async def create_product(
     price: float = Form(...),
     details: str = Form(...),
     main_image: UploadFile = File(..., description="Main image"),
-    images: list[UploadFile] = File(default=[], description="Other images")
+    images: list[UploadFile] = File(default=[], description="Other images"),
+    category: str = Form(..., description="Product category"),
+    sub_category: str = Form(..., description="Product sub-category")
 ):
     generated_id = str(uuid.uuid4())
     try:
@@ -76,8 +79,8 @@ async def create_product(
             os.makedirs(IMAGES_DIR, exist_ok=True)
         with engine.begin() as conn:
             conn.execute(
-                text("INSERT INTO Products (id, title, price, details) VALUES (:id, :title, :price, :details)"),
-                {"id": generated_id, "title": title, "price": price, "details": details}
+                text("INSERT INTO Products (id, title, price, details, category, sub_category) VALUES (:id, :title, :price, :details, :category, :sub_category)"),
+                {"id": generated_id, "title": title, "price": price, "details": details, "category": category, "sub_category": sub_category}
             )
             # main image
             ext = os.path.splitext(main_image.filename or "file.jpg")[1]
@@ -126,7 +129,9 @@ async def update_product(
                     UPDATE Products SET 
                         title = :title,
                         price = :price,
-                        details = :details
+                        details = :details,
+                        category = :category,
+                        sub_category = :sub_category
                     WHERE id = :id
                 """),
                 {"id": id, "title": title, "price": price, "details": details}
@@ -175,6 +180,57 @@ async def update_product(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
+@router.get('/category/{category}')
+def get_products_by_category(category: str):
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(
+                text("SELECT * FROM Products WHERE category = :category"), {"category": category}
+            ).mappings().all()
+            if not res:
+                raise HTTPException(status_code=404, detail="No products found for this category.")
+            products = []
+            for row in res:
+                product_id = row["id"]
+                main = conn.execute(
+                    text("SELECT url FROM products_main_imgs WHERE product_id = :id"), {"id": product_id}
+                ).fetchone()
+                images = conn.execute(
+                    text("SELECT url FROM products_imgs WHERE product_id = :id"), {"id": product_id}
+                ).scalars().all()
+                product = dict(row)
+                product["main_image"] = main[0] if main else None
+                product["images"] = images
+                products.append(product)
+            return products
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get('/category/{category}/{id}')
+def getProductByIdInCategory(category: str, id: str):
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(
+                text("SELECT * FROM Products WHERE category = :category AND id = :id"),
+                {"category": category, "id": id}
+            ).mappings().first()
+            if not res:
+                raise HTTPException(status_code=404, detail="No product found for this category and id.")
+            product_id = res["id"]
+            main = conn.execute(
+                text("SELECT url FROM products_main_imgs WHERE product_id = :id"), {"id": product_id}
+            ).fetchone()
+            images = conn.execute(
+                text("SELECT url FROM products_imgs WHERE product_id = :id"), {"id": product_id}
+            ).scalars().all()
+            product = dict(res)
+            product["main_image"] = main[0] if main else None
+            product["images"] = images
+            return product
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete('/products/{id}')
 def delete_product(id: str):
     try:
