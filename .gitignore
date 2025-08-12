@@ -1,3 +1,7 @@
 venv/
-.env/
+
+.env
+
 __pycache__/
+
+u83440565_barelectro.sql
