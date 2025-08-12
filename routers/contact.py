@@ -13,7 +13,6 @@ router = APIRouter()
 class FormData(BaseModel):
     full_name: str
     email: str
-    phone: str
     message: str
 
 def sendEmail(form_data: FormData):
@@ -29,7 +28,7 @@ def sendEmail(form_data: FormData):
         raise HTTPException(status_code=500, detail="El email del receptor no está configurado")
         
     subject = f"{form_data.full_name} - Contacto"
-    body = f"Nombre completo: {form_data.full_name}\nTeléfono: {form_data.phone}\nEmail: {form_data.email}\nMensaje: {form_data.message}"
+    body = f"Nombre completo: {form_data.full_name}\nEmail: {form_data.email}\nMensaje: {form_data.message}"
 
     msg = MIMEMultipart()
     msg['From'] = sender_email
