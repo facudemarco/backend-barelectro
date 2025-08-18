@@ -12,7 +12,7 @@ import json
 router = APIRouter()
 
 IMAGES_DIR = "images/"
-DOMAIN_URL = "https://api-barelectro.barelectro.com/images"
+DOMAIN_URL = "mdpuf8ksxirarnlhtl6pxo2xylsjmtq8-barelectro-api.bargiuelectro.com/images"
 
 @router.get('/products')
 def get_products():
@@ -107,16 +107,22 @@ async def create_product(
                 }
             )
 
+            normalized_details = []
             for d in details_items:
-                d = (d or "").strip()
+                if isinstance(d, str) and "," in d:
+                    normalized_details.extend([item.strip() for item in d.split(",") if item.strip()])
+                elif d:
+                    normalized_details.append(d.strip())
+
+            for d in normalized_details:
                 if not d:
                     continue
                 conn.execute(
                     text("""
-                        INSERT INTO details (product_id, detail_text)
-                        VALUES (:product_id, :detail_text)
+                        INSERT INTO details (id, product_id, detail_text)
+                        VALUES (:id, :product_id, :detail_text)
                     """),
-                    {"product_id": product_id, "detail_text": d}
+                    {"id": str(uuid.uuid4()), "product_id": product_id, "detail_text": d}
                 )
 
             main_ext = os.path.splitext(main_image.filename or "file.jpg")[1]
@@ -127,10 +133,10 @@ async def create_product(
             url_main = f"{DOMAIN_URL}/{main_fname}"
             conn.execute(
                 text("""
-                    INSERT INTO products_main_imgs (id, product_id, url)
-                    VALUES (:id, :product_id, :url)
+                    INSERT INTO details (id, product_id, detail_text)
+                    VALUES (:id, :product_id, :detail_text)
                 """),
-                {"id": str(uuid.uuid4()), "product_id": product_id, "url": url_main}
+                {"id": str(uuid.uuid4()), "product_id": product_id, "detail_text": d}
             )
 
             urls_images = []
