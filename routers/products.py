@@ -6,7 +6,8 @@ from Database.dbGetConnection import engine
 import uuid
 import os
 import shutil
-from models.product import Products
+from models.product import Products, ProductCreate
+import json
 
 router = APIRouter()
 
@@ -15,29 +16,41 @@ DOMAIN_URL = "https://api-barelectro.barelectro.com/images"
 
 @router.get('/products')
 def get_products():
-    
     try:
         with engine.begin() as conn:
             result = conn.execute(text("SELECT * FROM Products"))
             rows = result.mappings().all()
             if not rows:
                 raise HTTPException(status_code=404, detail="No products found.")
+
             products = []
             for product in rows:
                 hid = product["id"]
+
                 main = conn.execute(
                     text("SELECT url FROM products_main_imgs WHERE product_id = :id"),
                     {"id": hid}
                 ).fetchone()
+
                 images = conn.execute(
                     text("SELECT url FROM products_imgs WHERE product_id = :id"),
                     {"id": hid}
                 ).scalars().all()
+
+                details_list = conn.execute(
+                    text("SELECT detail_text FROM details WHERE product_id = :id"),
+                    {"id": hid}
+                ).scalars().all()
+
                 data = dict(product)
                 data["main_image"] = main[0] if main else None
                 data["images"] = images
+                data["details_list"] = details_list
+
                 products.append(data)
+
             return products
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -63,52 +76,97 @@ def get_products_by_id(id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post('/products/create_product')
+@router.post("/products/create_product", tags=["Products"])
 async def create_product(
     title: str = Form(...),
     price: float = Form(...),
-    details: str = Form(...),
-    main_image: UploadFile = File(..., description="Main image"),
-    images: list[UploadFile] = File(default=[], description="Other images"),
+    details_items: List[str] = Form(default=[]),      
     category: str = Form(..., description="Product category"),
-    sub_category: str = Form(..., description="Product sub-category")
+    sub_category: str = Form(..., description="Product sub-category"),
+    main_image: UploadFile = File(..., description="Main image"),
+    images: List[UploadFile] = File(default=[], description="Other images"),
 ):
-    generated_id = str(uuid.uuid4())
+    product_id = str(uuid.uuid4())
+
     try:
         if not os.path.exists(IMAGES_DIR):
             os.makedirs(IMAGES_DIR, exist_ok=True)
+
         with engine.begin() as conn:
             conn.execute(
-                text("INSERT INTO Products (id, title, price, details, category, sub_category) VALUES (:id, :title, :price, :details, :category, :sub_category)"),
-                {"id": generated_id, "title": title, "price": price, "details": details, "category": category, "sub_category": sub_category}
+                text("""
+                    INSERT INTO Products (id, title, price, category, sub_category)
+                    VALUES (:id, :title, :price, :category, :sub_category)
+                """),
+                {
+                    "id": product_id,
+                    "title": title,
+                    "price": price,
+                    "category": category,
+                    "sub_category": sub_category,
+                }
             )
-            # main image
-            ext = os.path.splitext(main_image.filename or "file.jpg")[1]
-            fname = f"{uuid.uuid4()}{ext}"
-            path = os.path.join(IMAGES_DIR, fname)
-            with open(path, "wb") as buf:
+
+            for d in details_items:
+                d = (d or "").strip()
+                if not d:
+                    continue
+                conn.execute(
+                    text("""
+                        INSERT INTO details (product_id, detail_text)
+                        VALUES (:product_id, :detail_text)
+                    """),
+                    {"product_id": product_id, "detail_text": d}
+                )
+
+            main_ext = os.path.splitext(main_image.filename or "file.jpg")[1]
+            main_fname = f"{uuid.uuid4()}{main_ext}"
+            main_path = os.path.join(IMAGES_DIR, main_fname)
+            with open(main_path, "wb") as buf:
                 shutil.copyfileobj(main_image.file, buf)
-            url_main = f"{DOMAIN_URL}/{fname}"
+            url_main = f"{DOMAIN_URL}/{main_fname}"
             conn.execute(
-                text("INSERT INTO products_main_imgs (id, product_id, url) VALUES (:id, :product_id, :url)"),
-                {"id": str(uuid.uuid4()), "product_id": generated_id, "url": url_main}
+                text("""
+                    INSERT INTO products_main_imgs (id, product_id, url)
+                    VALUES (:id, :product_id, :url)
+                """),
+                {"id": str(uuid.uuid4()), "product_id": product_id, "url": url_main}
             )
-            # other images
-            if images:
-                for img in images:
-                    ext = os.path.splitext(img.filename or "file.jpg")[1]
-                    fname = f"{uuid.uuid4()}{ext}"
-                    path = os.path.join(IMAGES_DIR, fname)
-                    with open(path, "wb") as buf:
-                        shutil.copyfileobj(img.file, buf)
-                    url = f"{DOMAIN_URL}/{fname}"
-                    conn.execute(
-                        text("INSERT INTO products_imgs (id, product_id, url) VALUES (:id, :product_id, :url)"),
-                        {"id": str(uuid.uuid4()), "product_id": generated_id, "url": url}
-                    )
-        return {"message": f"Product created successfully, ID: {generated_id}"}
+
+            urls_images = []
+            for img in images or []:
+                ext = os.path.splitext(img.filename or "file.jpg")[1]
+                fname = f"{uuid.uuid4()}{ext}"
+                path = os.path.join(IMAGES_DIR, fname)
+                with open(path, "wb") as buf:
+                    shutil.copyfileobj(img.file, buf)
+                url = f"{DOMAIN_URL}/{fname}"
+                urls_images.append(url)
+                conn.execute(
+                    text("""
+                        INSERT INTO products_imgs (id, product_id, url)
+                        VALUES (:id, :product_id, :url)
+                    """),
+                    {"id": str(uuid.uuid4()), "product_id": product_id, "url": url}
+                )
+
+        return {
+            "message": "Product created successfully",
+            "product": {
+                "id": product_id,
+                "title": title,
+                "price": price,
+                "category": category,
+                "sub_category": sub_category,
+                "details_list": details_items,
+                "main_image": url_main,
+                "images": urls_images,
+            }
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.put('/products/{id}')
 async def update_product(
@@ -198,11 +256,17 @@ def get_products_by_category(category: str):
                 images = conn.execute(
                     text("SELECT url FROM products_imgs WHERE product_id = :id"), {"id": product_id}
                 ).scalars().all()
+                details_list = conn.execute(
+                    text("SELECT detail_text FROM details WHERE product_id = :id"),
+                    {"id": product_id}
+                ).scalars().all()
                 product = dict(row)
                 product["main_image"] = main[0] if main else None
                 product["images"] = images
+                product["details_list"] = details_list
                 products.append(product)
             return products
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -211,25 +275,43 @@ def getProductByIdInCategory(category: str, id: str):
     try:
         with engine.connect() as conn:
             res = conn.execute(
-                text("SELECT * FROM Products WHERE category = :category AND id = :id"),
+                text("""
+                    SELECT * 
+                    FROM Products 
+                    WHERE category = :category AND id = :id
+                """),
                 {"category": category, "id": id}
             ).mappings().first()
+
             if not res:
                 raise HTTPException(status_code=404, detail="No product found for this category and id.")
+
             product_id = res["id"]
+
             main = conn.execute(
-                text("SELECT url FROM products_main_imgs WHERE product_id = :id"), {"id": product_id}
+                text("SELECT url FROM products_main_imgs WHERE product_id = :id"),
+                {"id": product_id}
             ).fetchone()
+
             images = conn.execute(
-                text("SELECT url FROM products_imgs WHERE product_id = :id"), {"id": product_id}
+                text("SELECT url FROM products_imgs WHERE product_id = :id"),
+                {"id": product_id}
             ).scalars().all()
+
+            details_list = conn.execute(
+                text("SELECT detail_text FROM details WHERE product_id = :id"),
+                {"id": product_id}
+            ).scalars().all()
+
             product = dict(res)
             product["main_image"] = main[0] if main else None
             product["images"] = images
+            product["details_list"] = details_list
+
             return product
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.delete('/products/{id}')
 def delete_product(id: str):
@@ -255,6 +337,11 @@ def delete_product(id: str):
 
         with engine.begin() as conn:
             conn.execute(
+                text("DELETE FROM details WHERE product_id = :id"),
+                {"id": id}
+            )
+
+            conn.execute(
                 text("DELETE FROM products_imgs WHERE product_id = :id"),
                 {"id": id}
             )
@@ -262,6 +349,7 @@ def delete_product(id: str):
                 text("DELETE FROM products_main_imgs WHERE product_id = :id"),
                 {"id": id}
             )
+
             result = conn.execute(
                 text("DELETE FROM Products WHERE id = :id"),
                 {"id": id}
@@ -269,6 +357,6 @@ def delete_product(id: str):
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Product not found.")
 
-        return {"message": "Product and associated images deleted successfully"}
+        return {"message": "Product, details and associated images deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
