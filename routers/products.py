@@ -125,6 +125,17 @@ async def create_product(
                     {"id": str(uuid.uuid4()), "product_id": product_id, "detail_text": d}
                 )
 
+            # main image
+            ext = os.path.splitext(main_image.filename or "file.jpg")[1]
+            fname = f"{uuid.uuid4()}{ext}"
+            path = os.path.join(IMAGES_DIR, fname)
+            with open(path, "wb") as buf:
+                shutil.copyfileobj(main_image.file, buf)
+            url_main = f"{DOMAIN_URL}/{fname}"
+            conn.execute(
+                text("INSERT INTO products_main_imgs (id, product_id, url) VALUES (:id, :product_id, :url)"),
+                {"id": str(uuid.uuid4()), "product_id": product_id, "url": url_main}
+            )
             main_ext = os.path.splitext(main_image.filename or "file.jpg")[1]
             main_fname = f"{uuid.uuid4()}{main_ext}"
             main_path = os.path.join(IMAGES_DIR, main_fname)
