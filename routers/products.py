@@ -42,10 +42,16 @@ def get_products():
                     {"id": hid}
                 ).scalars().all()
 
+                sub_categorys = conn.execute(
+                    text("SELECT sub_category_name FROM sub_categorys WHERE product_id = :id"),
+                    {"id": hid}
+                ).scalars().all()
+
                 data = dict(product)
                 data["main_image"] = main[0] if main else None
                 data["images"] = images
                 data["details_list"] = details_list
+                data["sub_categorys"] = sub_categorys
 
                 products.append(data)
 
@@ -82,7 +88,7 @@ async def create_product(
     price: float = Form(...),
     details_items: List[str] = Form(default=[]),      
     category: str = Form(..., description="Product category"),
-    sub_category: str = Form(..., description="Product sub-category"),
+    sub_category: List[str] = Form(None, description="Product sub-category"),
     main_image: UploadFile = File(..., description="Main image"),
     images: List[UploadFile] = File(default=[], description="Other images"),
 ):
@@ -95,18 +101,17 @@ async def create_product(
         with engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO Products (id, title, price, category, sub_category)
-                    VALUES (:id, :title, :price, :category, :sub_category)
+                    INSERT INTO Products (id, title, price, category)
+                    VALUES (:id, :title, :price, :category)
                 """),
                 {
                     "id": product_id,
                     "title": title,
                     "price": price,
-                    "category": category,
-                    "sub_category": sub_category,
+                    "category": category
                 }
             )
-
+            # Insert details
             normalized_details = []
             for d in details_items:
                 if isinstance(d, str) and "," in d:
@@ -123,6 +128,25 @@ async def create_product(
                         VALUES (:id, :product_id, :detail_text)
                     """),
                     {"id": str(uuid.uuid4()), "product_id": product_id, "detail_text": d}
+                )
+
+            # Insert sub-category
+            normalized_details = []
+            for d in details_items:
+                if isinstance(d, str) and "," in d:
+                    normalized_details.extend([item.strip() for item in d.split(",") if item.strip()])
+                elif d:
+                    normalized_details.append(d.strip())
+
+            for d in normalized_details:
+                if not d:
+                    continue
+                conn.execute(
+                    text("""
+                        INSERT INTO sub_categorys (id, product_id, sub_category_name)
+                        VALUES (:id, :product_id, :sub_category_name)
+                    """),
+                    {"id": str(uuid.uuid4()), "product_id": product_id, "sub_category_name": d}
                 )
 
             # main image
@@ -190,8 +214,10 @@ async def update_product(
     id: str,
     title: str = Form(...),
     price: float = Form(...),
-    details: str = Form(...),
-    main_image: UploadFile | None = File(description="New main image (optional)"),
+    details: List[str] = Form(default=[]),
+    category: str = Form(..., description="Product category"),
+    sub_category: List[str] = Form(None, description="Product sub-category"),
+    main_image: Optional[UploadFile] = File(default=None, description="New main image (optional)"),
     images: List[UploadFile] = File(default=[], description="Additional images (optional)")
 ):
     try:
@@ -204,15 +230,26 @@ async def update_product(
                     UPDATE Products SET 
                         title = :title,
                         price = :price,
-                        details = :details,
-                        category = :category,
-                        sub_category = :sub_category
+                        category = :category
                     WHERE id = :id
                 """),
-                {"id": id, "title": title, "price": price, "details": details}
+                {"id": id, "title": title, "price": price, "details": details, "category": category}
             )
+            
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Product not found.")
+
+            # Update details
+            result = conn.execute(
+                text("UPDATE details SET detail_text = :detail_text WHERE product_id = :id"),
+                {"id": id, "detail_text": details}
+            )
+
+            # Update sub-category
+            result = conn.execute(
+                text("UPDATE sub_categorys SET sub_category_name = :sub_category_name WHERE product_id = :id"),
+                {"id": id, "sub_category_name": sub_category}
+            )
 
             if main_image:
                 ext = os.path.splitext(main_image.filename or "file.jpg")[1]
@@ -277,10 +314,17 @@ def get_products_by_category(category: str):
                     text("SELECT detail_text FROM details WHERE product_id = :id"),
                     {"id": product_id}
                 ).scalars().all()
+
+                sub_categorys = conn.execute(
+                    text("SELECT sub_category_name FROM sub_categorys WHERE product_id = :id"),
+                    {"id": product_id}
+                ).scalars().all()
+
                 product = dict(row)
                 product["main_image"] = main[0] if main else None
                 product["images"] = images
                 product["details_list"] = details_list
+                product["sub_categorys"] = sub_categorys
                 products.append(product)
             return products
 
@@ -320,10 +364,16 @@ def getProductByIdInCategory(category: str, id: str):
                 {"id": product_id}
             ).scalars().all()
 
+            sub_categorys = conn.execute(
+                text("SELECT sub_category_name FROM sub_categorys WHERE product_id = :id"),
+                {"id": product_id}
+            ).scalars().all()
+
             product = dict(res)
             product["main_image"] = main[0] if main else None
             product["images"] = images
             product["details_list"] = details_list
+            product["sub_categorys"] = sub_categorys
 
             return product
 
@@ -355,6 +405,11 @@ def delete_product(id: str):
         with engine.begin() as conn:
             conn.execute(
                 text("DELETE FROM details WHERE product_id = :id"),
+                {"id": id}
+            )
+
+            conn.execute(
+                text("DELETE FROM sub_categorys WHERE product_id = :id"),
                 {"id": id}
             )
 
