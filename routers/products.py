@@ -89,7 +89,7 @@ async def create_product(
     details_items: List[str] = Form(default=[]),      
     category: str = Form(..., description="Product category"),
     sub_category: List[str] = Form(None, description="Product sub-category"),
-    main_image: UploadFile = File(..., description="Main image"),
+    main_image: UploadFile = File(default=[], description="Main image"),
     images: List[UploadFile] = File(default=[], description="Other images"),
 ):
     product_id = str(uuid.uuid4())
