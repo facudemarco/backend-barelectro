@@ -93,8 +93,8 @@ async def create_product(
     width: Optional[float] = Form(None, description="Product width (optional)"),
     depth: Optional[float] = Form(None, description="Product depth (optional)"),
     stock: Optional[bool] = Form(None, description="Product stock (optional)"),
-    main_image: UploadFile = File(default=[], description="Main image"),
-    images: List[UploadFile] = File(default=[], description="Other images"),
+    main_image: Optional[UploadFile] = File(default=None, description="Main image"),
+    images: Optional[List[UploadFile]] = File(default=None, description="Other images"),
 ):
     product_id = str(uuid.uuid4())
 
@@ -158,46 +158,38 @@ async def create_product(
                 )
 
             # main image
-            ext = os.path.splitext(main_image.filename or "file.jpg")[1]
-            fname = f"{uuid.uuid4()}{ext}"
-            path = os.path.join(IMAGES_DIR, fname)
-            with open(path, "wb") as buf:
-                shutil.copyfileobj(main_image.file, buf)
-            url_main = f"{DOMAIN_URL}/{fname}"
-            conn.execute(
-                text("INSERT INTO products_main_imgs (id, product_id, url) VALUES (:id, :product_id, :url)"),
-                {"id": str(uuid.uuid4()), "product_id": product_id, "url": url_main}
-            )
-            main_ext = os.path.splitext(main_image.filename or "file.jpg")[1]
-            main_fname = f"{uuid.uuid4()}{main_ext}"
-            main_path = os.path.join(IMAGES_DIR, main_fname)
-            with open(main_path, "wb") as buf:
-                shutil.copyfileobj(main_image.file, buf)
-            url_main = f"{DOMAIN_URL}/{main_fname}"
-            conn.execute(
-                text("""
-                    INSERT INTO details (id, product_id, detail_text)
-                    VALUES (:id, :product_id, :detail_text)
-                """),
-                {"id": str(uuid.uuid4()), "product_id": product_id, "detail_text": d}
-            )
-
-            urls_images = []
-            for img in images or []:
-                ext = os.path.splitext(img.filename or "file.jpg")[1]
+            url_main = None
+            if main_image is not None:
+                ext = os.path.splitext(main_image.filename or "file.jpg")[1]
                 fname = f"{uuid.uuid4()}{ext}"
                 path = os.path.join(IMAGES_DIR, fname)
                 with open(path, "wb") as buf:
-                    shutil.copyfileobj(img.file, buf)
-                url = f"{DOMAIN_URL}/{fname}"
-                urls_images.append(url)
+                    shutil.copyfileobj(main_image.file, buf)
+                url_main = f"{DOMAIN_URL}/{fname}"
                 conn.execute(
-                    text("""
-                        INSERT INTO products_imgs (id, product_id, url)
-                        VALUES (:id, :product_id, :url)
-                    """),
-                    {"id": str(uuid.uuid4()), "product_id": product_id, "url": url}
+                    text("INSERT INTO products_main_imgs (id, product_id, url) VALUES (:id, :product_id, :url)"),
+                    {"id": str(uuid.uuid4()), "product_id": product_id, "url": url_main}
                 )
+
+            urls_images = []
+            if images:
+                for img in images:
+                    if img is None:
+                        continue
+                    ext = os.path.splitext(img.filename or "file.jpg")[1]
+                    fname = f"{uuid.uuid4()}{ext}"
+                    path = os.path.join(IMAGES_DIR, fname)
+                    with open(path, "wb") as buf:
+                        shutil.copyfileobj(img.file, buf)
+                    url = f"{DOMAIN_URL}/{fname}"
+                    urls_images.append(url)
+                    conn.execute(
+                        text("""
+                            INSERT INTO products_imgs (id, product_id, url)
+                            VALUES (:id, :product_id, :url)
+                        """),
+                        {"id": str(uuid.uuid4()), "product_id": product_id, "url": url}
+                    )
 
         return {
             "message": "Product created successfully",
