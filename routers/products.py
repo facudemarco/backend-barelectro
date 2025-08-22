@@ -92,6 +92,7 @@ async def create_product(
     height: Optional[float] = Form(None, description="Product height (optional)"),
     width: Optional[float] = Form(None, description="Product width (optional)"),
     depth: Optional[float] = Form(None, description="Product depth (optional)"),
+    stock: Optional[bool] = Form(None, description="Product stock (optional)"),
     main_image: UploadFile = File(default=[], description="Main image"),
     images: List[UploadFile] = File(default=[], description="Other images"),
 ):
@@ -104,8 +105,8 @@ async def create_product(
         with engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO Products (id, title, price, category, height, width, depth)
-                    VALUES (:id, :title, :price, :category, :height, :width, :depth)
+                    INSERT INTO Products (id, title, price, category, height, width, depth, stock)
+                    VALUES (:id, :title, :price, :category, :height, :width, :depth, :stock)
                 """),
                 {
                     "id": product_id,
@@ -114,7 +115,8 @@ async def create_product(
                     "category": category,
                     "height": height,
                     "width": width,
-                    "depth": depth
+                    "depth": depth,
+                    "stock": stock
                 }
             )
             # Insert details
@@ -228,6 +230,7 @@ async def update_product(
     width: Optional[float] = Form(None, description="Product width (optional)"),
     height: Optional[float] = Form(None, description="Product height (optional)"),
     depth: Optional[float] = Form(None, description="Product depth (optional)"),
+    stock: Optional[bool] = Form(None, description="Product stock (optional)"),
     sub_category: List[str] = Form(None, description="Product sub-category"),
     main_image: Optional[UploadFile] = File(default=None, description="New main image (optional)"),
     images: List[UploadFile] = File(default=[], description="Additional images (optional)")
@@ -245,10 +248,11 @@ async def update_product(
                         category = :category,
                         height = :height,
                         width = :width,
-                        depth = :depth
+                        depth = :depth,
+                        stock = :stock
                     WHERE id = :id
                 """),
-                {"id": id, "title": title, "price": price, "details": details, "category": category, "height": height, "width": width, "depth": depth}
+                {"id": id, "title": title, "price": price, "details": details, "category": category, "height": height, "width": width, "depth": depth, "stock": stock}
             )
             
             if result.rowcount == 0:
