@@ -139,14 +139,14 @@ async def create_product(
                 )
 
             # Insert sub-category
-            normalized_details = []
-            for d in details_items:
+            normalized_subcat = []
+            for d in sub_category or []:
                 if isinstance(d, str) and "," in d:
-                    normalized_details.extend([item.strip() for item in d.split(",") if item.strip()])
+                    normalized_subcat.extend([item.strip() for item in d.split(",") if item.strip()])
                 elif d:
-                    normalized_details.append(d.strip())
+                    normalized_subcat.append(d.strip())
 
-            for d in normalized_details:
+            for d in normalized_subcat:
                 if not d:
                     continue
                 conn.execute(
